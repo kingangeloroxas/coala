@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		E602ACD02E5638E60007D13C /* sacramento.ttf in Resources */ = {isa = PBXBuildFile; fileRef = E602ACCF2E5638E60007D13C /* sacramento.ttf */; };
 		E60CF46D2E406FAE003BEB80 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = E60CF46C2E406FAE003BEB80 /* FirebaseAuth */; };
 		E60CF46F2E406FAE003BEB80 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = E60CF46E2E406FAE003BEB80 /* FirebaseCore */; };
 		E60CF4712E406FAE003BEB80 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = E60CF4702E406FAE003BEB80 /* FirebaseFirestore */; };
@@ -35,25 +36,19 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		E602ACCF2E5638E60007D13C /* sacramento.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = sacramento.ttf; sourceTree = "<group>"; };
 		E650F0C72E29F81900F5AF01 /* Coala Beta 2.2.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Coala Beta 2.2.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		E650F0D42E29F81C00F5AF01 /* Coala Beta 2.2Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Coala Beta 2.2Tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		E650F0DE2E29F81C00F5AF01 /* Coala Beta 2.2UITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Coala Beta 2.2UITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		E60CF4692E406EA5003BEB80 /* Exceptions for "Coala Beta 2.2" folder in "Coala Beta 2.2Tests" target */ = {
+		E602ACD62E563C9F0007D13C /* Exceptions for "Coala Beta 2.2" folder in "Coala Beta 2.2" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				"GoogleService-Info.plist",
+				Info.plist,
 			);
-			target = E650F0D32E29F81C00F5AF01 /* Coala Beta 2.2Tests */;
-		};
-		E60CF46A2E406EA5003BEB80 /* Exceptions for "Coala Beta 2.2" folder in "Coala Beta 2.2UITests" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				"GoogleService-Info.plist",
-			);
-			target = E650F0DD2E29F81C00F5AF01 /* Coala Beta 2.2UITests */;
+			target = E650F0C62E29F81900F5AF01 /* Coala Beta 2.2 */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -61,8 +56,7 @@
 		E650F0C92E29F81900F5AF01 /* Coala Beta 2.2 */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				E60CF4692E406EA5003BEB80 /* Exceptions for "Coala Beta 2.2" folder in "Coala Beta 2.2Tests" target */,
-				E60CF46A2E406EA5003BEB80 /* Exceptions for "Coala Beta 2.2" folder in "Coala Beta 2.2UITests" target */,
+				E602ACD62E563C9F0007D13C /* Exceptions for "Coala Beta 2.2" folder in "Coala Beta 2.2" target */,
 			);
 			path = "Coala Beta 2.2";
 			sourceTree = "<group>";
@@ -107,6 +101,7 @@
 			children = (
 				E650F0C92E29F81900F5AF01 /* Coala Beta 2.2 */,
 				E650F0C82E29F81900F5AF01 /* Products */,
+				E602ACCF2E5638E60007D13C /* sacramento.ttf */,
 			);
 			sourceTree = "<group>";
 		};
@@ -246,6 +241,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E602ACD02E5638E60007D13C /* sacramento.ttf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -429,10 +425,11 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = K9538J2W7D;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Coala Beta 2.2/Info.plist";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -443,7 +440,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "App.Coala-Beta-2-2";
+				PRODUCT_BUNDLE_IDENTIFIER = com.kristoffer.coala;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -459,10 +456,11 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = K9538J2W7D;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Coala Beta 2.2/Info.plist";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -473,7 +471,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "App.Coala-Beta-2-2";
+				PRODUCT_BUNDLE_IDENTIFIER = com.kristoffer.coala;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;

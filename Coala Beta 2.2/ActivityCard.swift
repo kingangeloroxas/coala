@@ -26,9 +26,9 @@ struct ActivityCard: View {
             }
             .padding()
             .background(Color.surface)
-            .clipShape(RoundedRectangle(cornerRadius: AppTheme.corner, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.corner, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: AppTheme.corner)
+                RoundedRectangle(cornerRadius: Theme.corner)
                     .stroke(isSelected ? Color.brand : Color.black.opacity(0.08), lineWidth: 1)
             )
         }

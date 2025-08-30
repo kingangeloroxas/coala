@@ -1,276 +1,461 @@
 import SwiftUI
 import MapKit
+import FirebaseAuth
+import FirebaseFirestore
 
-// MARK: - Coala Theme
-
+// MARK: - Coala Theme (local to this file)
 private enum CoalaTheme {
     static let sky      = Color(red: 0.93, green: 0.98, blue: 1.00)
     static let mist     = Color(red: 0.86, green: 0.96, blue: 1.00)
     static let leaf     = Color(red: 0.43, green: 0.79, blue: 0.62)
-    static let leafSoft = Color(red: 0.43, green: 0.79, blue: 0.62, opacity: 0.12)
     static let koala    = Color(red: 0.09, green: 0.27, blue: 0.55)
     static let bubble   = Color(.secondarySystemBackground)
 }
 
 // MARK: - Onboarding
-
 struct OnboardingView: View {
     @EnvironmentObject var appState: AppState
-    @StateObject private var search = LocationSearch()
 
-    // Form fields
+    // Local (session-only) state
     @State private var name: String = ""
-    @State private var ageString: String = ""
-    @State private var mbti: String = ""
+    @State private var dob: Date = {
+        var comps = DateComponents()
+        comps.year = 2000; comps.month = 1; comps.day = 1
+        return Calendar.current.date(from: comps) ?? Date(timeIntervalSince1970: 946684800) // Jan 1, 2000
+    }()
+    @State private var gender: String = ""      // "Female" / "Male"
     @State private var ethnicity: String = ""
     @State private var religion: String = ""
-    @State private var vibe: String = "Chill"
+    @State private var stateProvince: String = ""
+    // Debounced incremental Firestore save
+    @State private var saveWorkItem: DispatchWorkItem?
+    private let saveDelay: TimeInterval = 0.6
 
-    // City autocomplete state
-    @State private var query: String = ""
+    // LOCATION state
+    @StateObject private var search = LocationSearch()
+    @SceneStorage("onb.cityQuery") private var cityQuery: String = ""
     @State private var resolving = false
     @State private var errorText: String? = nil
-
-    // Suggestion visibility + focus + one-tap suppression
     @State private var showSuggestions = false
-    @FocusState private var queryFocused: Bool
     @State private var suppressNextQueryChange = false
+    @FocusState private var cityFocused: Bool
+    // New state to control Sign Up sheet presentation
+    @State private var showSignUpSheet = false
+    private let db = Firestore.firestore()
 
-    private var age: Int? { Int(ageString.trimmingCharacters(in: .whitespaces)) }
+    // Navigation
+    private enum Route: Hashable { case signup, details }
+    @State private var path: [Route] = []
+
+    // Derived
+    private var age: Int {
+        let now = Date()
+        let comps = Calendar.current.dateComponents([.year], from: dob, to: now)
+        return max(0, comps.year ?? 0)
+    }
     private var hasCity: Bool { !appState.userCity.isEmpty }
     private var canContinue: Bool {
         !name.trimmingCharacters(in: .whitespaces).isEmpty &&
-        age != nil &&
-        !mbti.isEmpty &&
+        age > 0 &&
+        !gender.isEmpty &&
+        !ethnicity.isEmpty &&
+        !religion.isEmpty &&
         hasCity
     }
 
-    private let mbtiOptions = [
-        "INTJ","INTP","ENTJ","ENTP",
-        "INFJ","INFP","ENFJ","ENFP",
-        "ISTJ","ISFJ","ESTJ","ESFJ",
-        "ISTP","ISFP","ESTP","ESFP"
-    ]
     private let ethnicityOptions = [
-        "Caucasian", "Asian", "Hispanic",
-        "African-American", "Native American", "South Asian"
+        "African-American", "Asian", "Caucasian",
+        "Hispanic", "Native American", "South Asian"
     ]
     private let religionOptions = [
-        "Christian", "Catholic", "Buddhist", "Hindu",
-        "Jewish", "Atheist", "Agnostic", "Spiritual", "None"
+        "Christian", "Catholic", "Jewish", "Muslim",
+        "Hindu", "Buddhist", "Atheist", "Spiritual", "None"
     ]
 
+    // MARK: - Body
     var body: some View {
-        ZStack {
-            LinearGradient(colors: [CoalaTheme.sky, CoalaTheme.mist],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-                .ignoresSafeArea()
-
-            LeafBackdrop().allowsHitTesting(false)
-
-            VStack(spacing: 0) {
-                AppTopBar(title: "onboarding", onBack: { appState.goBack() })
-                KoalaHeader()
-
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-
-                        // MARK: Your Details
-                        GroupBox {
-                            VStack(alignment: .leading, spacing: 12) {
-                                IconField(systemName: "person") {
-                                    TextField("name", text: $name)
-                                        .textContentType(.name)
-                                        .textInputAutocapitalization(.never)
-                                        .disableAutocorrection(true)
-                                }
-
-                                IconField(systemName: "number") {
-                                    TextField("age", text: $ageString)
-                                        .keyboardType(.numberPad)
-                                        .textInputAutocapitalization(.never)
-                                        .disableAutocorrection(true)
-                                }
-
-                                HStack(spacing: 10) {
-                                    FieldMenu(selection: $mbti, placeholder: "MBTI", options: mbtiOptions)
-                                    FieldMenu(selection: $ethnicity, placeholder: "Ethnicity", options: ethnicityOptions)
-                                    FieldMenu(selection: $religion, placeholder: "Religion", options: religionOptions)
-                                }
-
-                                Picker("Vibe", selection: $vibe) {
-                                    Text("Chill").tag("Chill")
-                                    Text("Casual").tag("Casual")
-                                    Text("Party").tag("Party")
-                                }
-                                .pickerStyle(.segmented)
-                            }
-                            .padding(.vertical, 6)
-                        } label: {
-                            SectionHeader(title: "Your Details")
-                        }
-                        .groupBoxStyle(KoalaGroupBoxStyle())
-
-                        // MARK: Location (city only) with autocomplete
-                        GroupBox {
-                            VStack(alignment: .leading, spacing: 12) {
-                                if #available(iOS 17.0, *) {
-                                    IconField(systemName: "mappin.and.ellipse") {
-                                        TextField("enter your city", text: $query)
-                                            .focused($queryFocused)
-                                            .textInputAutocapitalization(.never)
-                                            .disableAutocorrection(true)
-                                            .onChange(of: query) { _, newValue in
-                                                handleQueryChange(newValue)
-                                            }
-                                    }
-                                } else {
-                                    IconField(systemName: "mappin.and.ellipse") {
-                                        TextField("enter your city", text: $query)
-                                            .focused($queryFocused)
-                                            .textInputAutocapitalization(.never)
-                                            .disableAutocorrection(true)
-                                            .onChange(of: query) { newValue in
-                                                handleQueryChange(newValue)
-                                            }
-                                    }
-                                }
-
-                                if showSuggestions && !search.suggestions.isEmpty {
-                                    VStack(spacing: 0) {
-                                        ForEach(search.suggestions, id: \.self) { s in
-                                            Button { pick(s) } label: {
-                                                HStack(alignment: .firstTextBaseline) {
-                                                    Text(s.title).font(.body)
-                                                    if !s.subtitle.isEmpty {
-                                                        Text("· \(s.subtitle)")
-                                                            .font(.subheadline)
-                                                            .foregroundStyle(.secondary)
-                                                    }
-                                                    Spacer()
-                                                }
-                                                .padding(.horizontal, 12)
-                                                .padding(.vertical, 10)
-                                            }
-                                            .buttonStyle(.plain)
-                                            .contentShape(Rectangle())
-                                            Divider()
-                                        }
-                                    }
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                            .fill(CoalaTheme.bubble)
-                                            .shadow(color: .black.opacity(0.05), radius: 8, y: 4)
-                                    )
-                                }
-
-                                if resolving {
-                                    HStack(spacing: 8) {
-                                        ProgressView()
-                                        Text("Confirming city…").foregroundStyle(.secondary)
-                                    }
-                                } else if !appState.userCity.isEmpty {
-                                    HStack(spacing: 6) {
-                                        Image(systemName: "leaf")
-                                            .foregroundStyle(CoalaTheme.leaf)
-                                        Text("Selected city: \(appState.userCity)")
-                                            .foregroundStyle(.secondary)
-                                    }
-                                } else if let err = errorText {
-                                    Text(err).foregroundStyle(.red)
-                                }
-                            }
-                            .padding(.vertical, 6)
-                        } label: {
-                            SectionHeader(title: "Location")
-                        }
-                        .groupBoxStyle(KoalaGroupBoxStyle())
-
-                        // MARK: Continue
-                        Button {
-                            saveAndContinue()
-                        } label: {
-                            HStack(spacing: 10) {
-                                Text("Continue")
-                                Image(systemName: "arrow.right")
-                            }
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                        }
-                        .buttonStyle(KoalaFilledButtonStyle(enabled: canContinue))
-                        .disabled(!canContinue)
-
-                        Spacer(minLength: 24)
-                    }
-                    .padding(20)
-                }
-                .scrollDismissesKeyboard(.interactively)
-                .simultaneousGesture(TapGesture().onEnded {
-                    if showSuggestions {
-                        showSuggestions = false
-                        queryFocused = false
-                    }
-                })
+        NavigationStack(path: $path) {
+            ZStack {
+                backgroundLayer
+                contentLayer
+            }
+            .navigationBarBackButtonHidden(true)
+            .navigationTitle("")
+            .onAppear {
+                syncRestoredCityIfNeeded()
+                // Present Sign Up first if we don't have an auth email yet
+                #if DEBUG
+                // If you want to see Sign Up every run while testing, set this true manually
+                #endif
+                showSignUpSheet = (appState.authEmail.isEmpty)
+            }
+            .fullScreenCover(isPresented: $showSignUpSheet) {
+                AccountSignUpView()
+                    .environmentObject(appState)
+            }
+            .navigationDestination(for: Route.self, destination: destinationView)
+            // Auto-save to Firestore as the user fills profile (debounced)
+            .onChange(of: name) { new in
+                let v = new.trimmingCharacters(in: .whitespaces)
+                if !v.isEmpty { scheduleUserUpdate(["name": v]) }
+            }
+            .onChange(of: gender) { new in
+                let g = normalizedGender(new)
+                if !g.isEmpty { scheduleUserUpdate(["gender": g]) }
+            }
+            .onChange(of: dob) { new in
+                let payload: [String: Any] = [
+                    "dob": Timestamp(date: new),
+                    "age": age
+                ]
+                scheduleUserUpdate(payload)
+            }
+            .onChange(of: ethnicity) { new in
+                if !new.isEmpty { scheduleUserUpdate(["ethnicity": new]) }
+            }
+            .onChange(of: religion) { new in
+                if !new.isEmpty { scheduleUserUpdate(["religion": new]) }
+            }
+            .onChange(of: appState.userCity) { new in
+                if !new.isEmpty { scheduleUserUpdate(["city": new]) }
+            }
+            .onChange(of: stateProvince) { new in
+                if !new.isEmpty { scheduleUserUpdate(["state": new]) }
             }
         }
-        .onAppear {
-            if !appState.userCity.isEmpty { query = appState.userCity }
-        }
-        .navigationBarBackButtonHidden(true)
     }
 
-    // MARK: - Logic
+    // MARK: - Layers
 
-    private func handleQueryChange(_ newValue: String) {
-        if suppressNextQueryChange {
-            suppressNextQueryChange = false
-            return
-        }
-        errorText = nil
-        appState.userCity = ""
-        showSuggestions = !newValue.isEmpty && queryFocused
-        search.update(fragment: newValue)
+    private var backgroundLayer: some View {
+        LinearGradient(
+            colors: [CoalaTheme.sky, CoalaTheme.mist],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        .ignoresSafeArea()
+        .overlay(LeafBackdrop().allowsHitTesting(false))
     }
 
-    private func saveAndContinue() {
-        // If user typed but didn't tap a suggestion, keep their text (trimmed).
-        if appState.userCity.isEmpty, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            appState.userCity = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    private var contentLayer: some View {
+        VStack(spacing: 0) {
+            KoalaHeader()
+            formScroll
         }
+    }
 
+    // MARK: - Scroll + Sections
+
+    private var formScroll: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                profileBox
+                locationBox
+                continueButton
+                Spacer(minLength: 24)
+            }
+            .padding(20)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .simultaneousGesture(TapGesture().onEnded(dismissSuggestions))
+    }
+
+    private var profileBox: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 12) {
+                nameField
+                genderPicker
+                dobField
+                Text("Age: \(age)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                ethnicityMenu
+                religionMenu
+            }
+            .padding(.vertical, 6)
+        } label: {
+            SectionHeader(title: "Profile")
+        }
+        .groupBoxStyle(KoalaGroupBoxStyle())
+    }
+
+    private var locationBox: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 12) {
+                cityField
+                citySuggestionsList
+                resolvingOrError
+            }
+            .padding(.vertical, 6)
+        } label: {
+            SectionHeader(title: "Location")
+        }
+        .groupBoxStyle(KoalaGroupBoxStyle())
+    }
+
+    private var continueButton: some View {
+        Button(action: continueTapped) {
+            HStack(spacing: 10) {
+                Text("Continue")
+                Image(systemName: "arrow.right")
+            }
+            .font(.headline)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(!canContinue)
+    }
+
+    // Allow DOB selection between Jan 1, 1900 and today; default is Jan 1, 2000
+    private var datePickerRange: ClosedRange<Date> {
+        var startComps = DateComponents(); startComps.year = 1900; startComps.month = 1; startComps.day = 1
+        let start = Calendar.current.date(from: startComps) ?? Date(timeIntervalSince1970: -2208988800) // 1900-01-01
+        return start...Date()
+    }
+
+    // MARK: - Profile controls
+
+    private var nameField: some View {
+        IconField(systemName: "person") {
+            TextField("name", text: $name)
+                .textContentType(.name)
+                .textInputAutocapitalization(.never)
+                .disableAutocorrection(true)
+        }
+    }
+
+    private var genderPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Picker("Gender", selection: $gender) {
+                Text("female").tag("Female")
+                Text("male").tag("Male")
+            }
+            .pickerStyle(.segmented)
+        }
+    }
+
+    private var dobField: some View {
+        IconField(systemName: "calendar") {
+            DatePicker("date of birth",
+                       selection: $dob,
+                       in: datePickerRange,
+                       displayedComponents: [.date])
+                .datePickerStyle(.graphical)
+                .labelsHidden()
+                .accessibilityLabel("Date of birth")
+        }
+    }
+
+    private var ethnicityMenu: some View {
+        FieldMenu(selection: $ethnicity,
+                  placeholder: "Ethnicity",
+                  options: ethnicityOptions)
+    }
+
+    private var religionMenu: some View {
+        FieldMenu(selection: $religion,
+                  placeholder: "Religion",
+                  options: religionOptions)
+    }
+
+    // MARK: - Location controls
+
+    private var cityField: some View {
+        IconField(systemName: "mappin.and.ellipse") {
+            TextField("enter your city", text: $cityQuery)
+                .focused($cityFocused)
+                .textInputAutocapitalization(.never)
+                .disableAutocorrection(true)
+                .onChange(of: cityQuery, perform: handleCityQueryChange)
+        }
+    }
+
+    @ViewBuilder
+    private var citySuggestionsList: some View {
+        if showSuggestions && !search.suggestions.isEmpty {
+            VStack(spacing: 0) {
+                ForEach(search.suggestions, id: \.self) { s in
+                    Button { pickCity(s) } label: {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(s.title).font(.body)
+                            if !s.subtitle.isEmpty {
+                                Text("· \(s.subtitle)")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                    }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+                    Divider()
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(CoalaTheme.bubble)
+                    .shadow(color: Color.black.opacity(0.05), radius: 8, y: 4)
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var resolvingOrError: some View {
+        if resolving {
+            HStack(spacing: 8) {
+                ProgressView()
+                Text("Confirming city…").foregroundStyle(.secondary)
+            }
+        } else if let err = errorText {
+            Text(err).foregroundStyle(.red)
+        }
+    }
+
+    // MARK: - Navigation destination
+
+    @ViewBuilder
+    private func destinationView(for route: Route) -> some View {
+        switch route {
+        case .details:
+            // ✅ Start traits flow at the first screen (Humor)
+            OnboardingDetailsView()
+                .environmentObject(appState)
+        case .signup:
+            AccountSignUpView()
+                .environmentObject(appState)
+        }
+    }
+
+    // MARK: - Lifecycle helpers
+
+    private func syncRestoredCityIfNeeded() {
+        // If the field restored a value but userCity is empty, sync so Continue enables.
+        if !cityQuery.isEmpty, appState.userCity.isEmpty {
+            appState.userCity = cityQuery
+        }
+    }
+
+    // MARK: - Actions
+
+    // MARK: - Firestore incremental save (debounced)
+    private func scheduleUserUpdate(_ fields: [String: Any]) {
+        guard Auth.auth().currentUser?.uid != nil else { return } // only if signed in
+        // Cancel any pending write
+        saveWorkItem?.cancel()
+        // Create a new debounced task
+        let work = DispatchWorkItem { upsertUserFields(fields) }
+        saveWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + saveDelay, execute: work)
+    }
+
+    private func upsertUserFields(_ fields: [String: Any]) {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        var toWrite = fields
+        toWrite["updatedAt"] = FieldValue.serverTimestamp()
+
+        db.collection("users").document(uid).setData(toWrite, merge: true) { error in
+            if let error = error {
+                print("⚠️ incremental user save failed: \(error.localizedDescription)")
+            } else {
+                print("✅ incremental user save merged for uid \(uid)")
+            }
+        }
+    }
+
+    private func dismissSuggestions() {
+        if showSuggestions {
+            showSuggestions = false
+            cityFocused = false
+        }
+    }
+
+    private func continueTapped() {
+        let nameClean = name.trimmingCharacters(in: .whitespaces)
+        let ageClean = age
+
+        // Update local state
         var u = appState.currentUser
-        u.name = name.trimmingCharacters(in: .whitespaces)
-        u.age = age ?? 25
-        u.mbti = mbti
-        u.vibe = vibe
+        u.name      = nameClean
+        u.age       = ageClean
+        u.gender    = normalizedGender(gender)
         u.ethnicity = ethnicity
-        u.religion = religion
-
-        // ✅ Ensure Matcher sees user's city (saved on the User object)
-        u.city = appState.userCity.trimmingCharacters(in: .whitespacesAndNewlines)
-
+        u.city      = appState.userCity
         appState.currentUser = u
 
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        appState.goNextFromOnboarding()
+
+        // Persist to Firestore if authenticated
+        if let uid = Auth.auth().currentUser?.uid {
+            let userDoc: [String: Any] = [
+                "name": nameClean,
+                "age": ageClean,
+                "dob": Timestamp(date: dob),
+                "gender": normalizedGender(gender),
+                "ethnicity": ethnicity,
+                "religion": religion,
+                "city": appState.userCity,
+                "state": stateProvince,
+                "onboardingStep": "profile",               // for analytics / progress if desired
+                "updatedAt": FieldValue.serverTimestamp()
+            ]
+
+            db.collection("users").document(uid).setData(userDoc, merge: true) { error in
+                if let error = error {
+                    // Soft‑fail: you can surface this more prominently if you prefer
+                    print("⚠️ Firestore save failed: \(error.localizedDescription)")
+                } else {
+                    print("✅ Onboarding (profile) saved for uid \(uid)")
+                }
+            }
+        } else {
+            // Not signed in yet — continue UX, but log for debugging
+            print("ℹ️ continueTapped: no Auth user; skipping Firestore write")
+        }
+
+        // Navigate directly to traits/details
+        path.append(.details)
     }
 
-    private func pick(_ completion: MKLocalSearchCompletion) {
+    private func normalizedGender(_ value: String) -> String {
+        switch value.lowercased() {
+        case "male":   return "Male"
+        case "female": return "Female"
+        default:       return value
+        }
+    }
+
+    // MARK: - City behavior
+
+    private func handleCityQueryChange(_ newValue: String) {
+        // Ignore programmatic/restore changes and only react when the user is editing.
+        if suppressNextQueryChange { suppressNextQueryChange = false; return }
+        if !cityFocused { return }
+
+        errorText = nil
+        appState.userCity = ""
+        showSuggestions = !newValue.isEmpty
+        search.update(fragment: newValue)
+    }
+
+    private func pickCity(_ completion: MKLocalSearchCompletion) {
         showSuggestions = false
-        queryFocused = false
+        cityFocused = false
         suppressNextQueryChange = true
-        query = completion.title
+        cityQuery = completion.title
         search.clear()
 
         resolving = true
         errorText = nil
 
-        search.resolve(completion) { city in
+        search.resolve(completion) { city, state, country in
             DispatchQueue.main.async {
                 resolving = false
                 if let city, !city.isEmpty {
                     appState.userCity = city
+                    stateProvince = state ?? ""
                 } else {
                     appState.userCity = ""
                     errorText = "Couldn't extract a city from that address. Try another result."
@@ -280,37 +465,7 @@ struct OnboardingView: View {
     }
 }
 
-// MARK: - Reusable Menu field (text-only)
-
-private struct FieldMenu: View {
-    @Binding var selection: String
-    let placeholder: String
-    let options: [String]
-
-    var body: some View {
-        Menu {
-            ForEach(options, id: \.self) { opt in
-                Button(opt) { selection = opt } // text-only; no checkmarks
-            }
-        } label: {
-            Text(selection.isEmpty ? placeholder : selection)
-                .foregroundStyle(selection.isEmpty ? .secondary : .primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-                .allowsTightening(true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.gray.opacity(0.32))
-                )
-        }
-    }
-}
-
-// MARK: - Header, Sections, Styles
-
+// MARK: - Shared UI bits
 private struct KoalaHeader: View {
     var body: some View {
         VStack(spacing: 10) {
@@ -318,24 +473,21 @@ private struct KoalaHeader: View {
                 Circle()
                     .fill(Color.white.opacity(0.65))
                     .frame(width: 76, height: 76)
-                    .overlay(
-                        Circle()
-                            .stroke(CoalaTheme.koala.opacity(0.08), lineWidth: 1)
-                    )
+                    .overlay(Circle().stroke(CoalaTheme.koala.opacity(0.08), lineWidth: 1))
                     .shadow(color: .black.opacity(0.06), radius: 8, y: 4)
 
-                Image("coala_icon") // replace with your asset name if different
+                Image("coala_question")
                     .resizable()
                     .scaledToFit()
                     .frame(width: 52, height: 52)
                     .accessibilityHidden(true)
             }
 
-            Text("Welcome to Coala")
+            Text("Let's Get Started!")
                 .font(.title2.weight(.semibold))
                 .foregroundStyle(CoalaTheme.koala)
 
-            Text("find your group • plan with ease")
+            Text("tell us about yourself")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -349,10 +501,8 @@ private struct SectionHeader: View {
     let title: String
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "leaf")
-                .foregroundStyle(CoalaTheme.leaf)
-            Text(title)
-                .font(.headline)
+            Image(systemName: "leaf").foregroundStyle(CoalaTheme.leaf)
+            Text(title).font(.headline)
         }
     }
 }
@@ -389,36 +539,44 @@ private struct KoalaGroupBoxStyle: GroupBoxStyle {
     }
 }
 
-private struct KoalaFilledButtonStyle: ButtonStyle {
-    let enabled: Bool
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .frame(maxWidth: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(enabled ? CoalaTheme.koala : Color.gray.opacity(0.35))
-                    .brightness(configuration.isPressed ? -0.05 : 0)
-            )
-            .foregroundStyle(.white)
-            .shadow(color: enabled ? CoalaTheme.koala.opacity(0.25) : .clear, radius: 10, y: 6)
-            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+private struct FieldMenu: View {
+    @Binding var selection: String
+    let placeholder: String
+    let options: [String]
+
+    var body: some View {
+        Menu {
+            ForEach(options, id: \.self) { opt in
+                Button(opt) { selection = opt }
+            }
+        } label: {
+            Text(selection.isEmpty ? placeholder : selection)
+                .foregroundStyle(selection.isEmpty ? .secondary : .primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.gray.opacity(0.32))
+                )
+        }
     }
 }
-
-// MARK: - Subtle decorative backdrop
 
 private struct LeafBackdrop: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
                 EucalyptusLeaf()
-                    .fill(CoalaTheme.leafSoft)
+                    .fill(CoalaTheme.leaf.opacity(0.12))
                     .frame(width: 220, height: 140)
                     .rotationEffect(.degrees(-25))
                     .offset(x: -geo.size.width * 0.28, y: -geo.size.height * 0.22)
 
                 EucalyptusLeaf()
-                    .fill(CoalaTheme.leafSoft)
+                    .fill(CoalaTheme.leaf.opacity(0.12))
                     .frame(width: 260, height: 160)
                     .rotationEffect(.degrees(15))
                     .offset(x: geo.size.width * 0.32, y: geo.size.height * 0.35)
@@ -440,10 +598,7 @@ private struct EucalyptusLeaf: Shape {
     }
 }
 
-// MARK: - Embedded autocomplete helper
-
-/// Canonicalizes resolved places to formats CityGeo is more likely to recognize.
-/// US -> "City, ST"; non-US -> "City, Country".
+// MARK: - Location helpers
 private func canonicalCityString(from placemark: MKPlacemark) -> String? {
     let city = placemark.locality ?? placemark.subAdministrativeArea
     let state = placemark.administrativeArea
@@ -459,6 +614,7 @@ private func canonicalCityString(from placemark: MKPlacemark) -> String? {
     }
 }
 
+// MARK: - Search object
 final class LocationSearch: NSObject, ObservableObject, MKLocalSearchCompleterDelegate {
     @Published var suggestions: [MKLocalSearchCompletion] = []
     private let completer = MKLocalSearchCompleter()
@@ -488,16 +644,24 @@ final class LocationSearch: NSObject, ObservableObject, MKLocalSearchCompleterDe
         suggestions = []
     }
 
-    func resolve(_ completion: MKLocalSearchCompletion, done: @escaping (String?) -> Void) {
+    func resolve(_ completion: MKLocalSearchCompletion,
+                 done: @escaping (_ city: String?, _ state: String?, _ country: String?) -> Void) {
         let request = MKLocalSearch.Request(completion: completion)
-        let search = MKLocalSearch(request: request)
-        search.start { response, _ in
+        MKLocalSearch(request: request).start { response, _ in
             if let pm = response?.mapItems.first?.placemark {
-                done(canonicalCityString(from: pm))
+                let parts = parseCityStateCountry(from: pm)
+                done(parts.city, parts.state, parts.country)
             } else {
-                done(nil)
+                done(nil, nil, nil)
             }
         }
     }
+}
+
+private func parseCityStateCountry(from placemark: MKPlacemark) -> (city: String?, state: String?, country: String?) {
+    let city = placemark.locality ?? placemark.subAdministrativeArea
+    let state = placemark.administrativeArea
+    let country = placemark.country
+    return (city, state, country)
 }
 

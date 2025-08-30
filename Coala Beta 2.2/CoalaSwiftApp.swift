@@ -3,13 +3,16 @@
 //  Coala
 //
 
+
 import SwiftUI
+import FirebaseCore
 
 @main
 struct CoalaSwiftApp: App {
     @StateObject private var appState = AppState()
 
     init() {
+        FirebaseApp.configure()
         DS.configureAppearance() // optional bar styling
     }
 
